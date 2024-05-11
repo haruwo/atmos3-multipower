@@ -34,7 +34,7 @@ void setup()
 {
   AtomS3.begin(false);
   Serial.begin(115200);
-  Wire1.begin();
+  Wire.begin(2, 1, 1000000UL); // I2C1 (SCL, SDA, frequency
 
   delay(1000); // wait for Serial Monitor
 

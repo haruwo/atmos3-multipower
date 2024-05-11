@@ -58,8 +58,8 @@ int Y2KB_USBRemoteI2C::read()
 {
     _wire.beginTransmission(_address);
     _wire.write(I2C_REGISTER_POWER_STATE);
-    _wire.endTransmission();
-    _wire.requestFrom(_address, 1, true);
+    _wire.endTransmission(false);
+    _wire.requestFrom(_address, 1);
     if (_wire.available())
     {
         return _wire.read();
@@ -79,3 +79,4 @@ void Y2KB_USBRemoteI2C::updateInitialState(int state)
 }
 
 Y2KB_USBRemoteI2C USBRemoteI2C;
+Y2KB_USBRemoteI2C USBRemoteI2C1(Wire1);

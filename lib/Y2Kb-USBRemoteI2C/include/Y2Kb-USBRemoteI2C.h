@@ -30,5 +30,6 @@ private:
 };
 
 extern Y2KB_USBRemoteI2C USBRemoteI2C;
+extern Y2KB_USBRemoteI2C USBRemoteI2C1;
 
 #endif // _Y2KB_USBREMOTEI2C_H_
