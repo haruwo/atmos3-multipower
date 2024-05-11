@@ -1,0 +1,7 @@
+#ifndef __LOCAL_SSID_DEFINE_H__
+#define __LOCAL_SSID_DEFINE_H__
+
+#define WIFI_SSID "SSID"
+#define WIFI_PASS "PASS"
+
+#endif
