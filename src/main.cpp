@@ -183,7 +183,7 @@ void i2cWatcher(void *pvParameters)
     {
       v2LastState = state;
     }
-    vTaskDelay(100);
+    vTaskDelay(1000);
   }
 }
 
