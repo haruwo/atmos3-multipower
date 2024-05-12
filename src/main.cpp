@@ -80,9 +80,21 @@ void updateDisplay(const int p2State, const int pmpState, const WifiState wifiSt
 
   // USB Remote I2C
   Sprite.setCursor(6, 30);
-  Sprite.setTextColor(p2State == 1 ? TFT_GREEN : TFT_RED, TFT_BLACK);
-  Sprite.print("V2: ");
-  Sprite.print(p2State == 1 ? "ON" : "OFF");
+  switch (p2State)
+  {
+  case 1:
+    Sprite.setTextColor(TFT_GREEN, TFT_BLACK);
+    Sprite.print("V2: ON");
+    break;
+  case 0:
+    Sprite.setTextColor(TFT_LIGHTGRAY, TFT_BLACK);
+    Sprite.print("V2: OFF");
+    break;
+  default:
+    Sprite.setTextColor(TFT_RED, TFT_BLACK);
+    Sprite.print("V2: ?");
+    break;
+  }
 
   // WiFi
   Sprite.setCursor(6, 54);
@@ -93,11 +105,11 @@ void updateDisplay(const int p2State, const int pmpState, const WifiState wifiSt
     Sprite.print("WF: HOME");
     break;
   case WIFI_STATE_AWAY:
-    Sprite.setTextColor(TFT_YELLOW, TFT_BLACK);
+    Sprite.setTextColor(TFT_LIGHTGRAY, TFT_BLACK);
     Sprite.print("WF: AWAY");
     break;
   default:
-    Sprite.setTextColor(TFT_LIGHTGRAY, TFT_BLACK);
+    Sprite.setTextColor(TFT_RED, TFT_BLACK);
     Sprite.print("WF: ?");
     break;
   }
@@ -156,6 +168,25 @@ void powerStateWatcher(void *pvParameters)
   }
 }
 
+void i2cWatcher(void *pvParameters)
+{
+  while (1)
+  {
+    int state = USBRemoteI2C.read();
+    if (state < 0)
+    {
+      Serial1.println("Failed to read USB Remote I2C");
+      vTaskDelay(1000);
+      continue;
+    }
+    if (v2LastState != state)
+    {
+      v2LastState = state;
+    }
+    vTaskDelay(100);
+  }
+}
+
 void wifiWatcher(void *pvParameters)
 {
   WiFi.mode(WIFI_STA);
@@ -197,13 +228,13 @@ void wifiWatcher(void *pvParameters)
       {
         // turn off Battery
         USBRemoteI2C.off();
-        v2LastState = 1;
+        v2LastState = 0;
       }
       else
       {
         // turn on Battery
         USBRemoteI2C.on();
-        v2LastState = 0;
+        v2LastState = 1;
       }
     }
 
@@ -235,6 +266,7 @@ void setup()
 
   xTaskCreate(btnWather, "btnWather", 4096, NULL, 1, NULL);
   xTaskCreate(powerStateWatcher, "powerStateWatcher", 4096, NULL, 1, NULL);
+  xTaskCreate(i2cWatcher, "i2cWatcher", 4096, NULL, 1, NULL);
   xTaskCreate(wifiWatcher, "wifiWatcher", 4096, NULL, 1, NULL);
 }
 
