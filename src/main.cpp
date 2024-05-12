@@ -6,6 +6,8 @@
 #include "defer.h"
 #include "local_ssid_define.h"
 
+#define Serial USBSerial
+
 LGFX_Sprite Sprite(&AtomS3.Display);
 
 int v2LastState = -1;

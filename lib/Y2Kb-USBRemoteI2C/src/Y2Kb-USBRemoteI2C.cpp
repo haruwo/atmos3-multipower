@@ -6,6 +6,8 @@
 #define I2C_REGISTER_INTIAL_STATE 0x02
 #define I2C_REGISTER_RESET 0x06
 
+#define Serial USBSerial
+
 // Constructor
 Y2KB_USBRemoteI2C::Y2KB_USBRemoteI2C(TwoWire &wire)
     : _address(0x00), _initialized(false), _wire(wire)
@@ -77,12 +79,15 @@ void Y2KB_USBRemoteI2C::updateInitialState(int state)
     int before = _wire.read();
     if (before == state)
     {
+        Serial.printf("Initial state is already %d\n", state);
         return;
     }
 
+    _wire.beginTransmission(_address);
     _wire.write(I2C_REGISTER_INTIAL_STATE);
     _wire.write(state);
     _wire.endTransmission();
+    Serial.printf("Initial state updated to %d\n", state);
 }
 
 Y2KB_USBRemoteI2C USBRemoteI2C;
