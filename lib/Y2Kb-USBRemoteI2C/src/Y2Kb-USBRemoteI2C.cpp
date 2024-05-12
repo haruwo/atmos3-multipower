@@ -75,19 +75,30 @@ void Y2KB_USBRemoteI2C::updateInitialState(int state)
     _wire.beginTransmission(_address);
     _wire.write(I2C_REGISTER_INTIAL_STATE);
     _wire.endTransmission(false);
+
     _wire.requestFrom(_address, 1);
+    if (!_wire.available())
+    {
+        Serial.println("Failed to read initial state");
+        return;
+    }
+
     int before = _wire.read();
     if (before == state)
     {
-        Serial.printf("Initial state is already %d\n", state);
+        Serial.printf("Initial state is already %d == %d\n", before, state);
         return;
     }
+
+    delay(100); // wait for the device to be ready
 
     _wire.beginTransmission(_address);
     _wire.write(I2C_REGISTER_INTIAL_STATE);
     _wire.write(state);
     _wire.endTransmission();
-    Serial.printf("Initial state updated to %d\n", state);
+    Serial.printf("Initial state updated %d to %d\n", before, state);
+
+    delay(100); // wait for the device to be ready
 }
 
 Y2KB_USBRemoteI2C USBRemoteI2C;
