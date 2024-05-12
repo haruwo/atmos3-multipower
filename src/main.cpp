@@ -13,11 +13,12 @@ int pwrLastState = -1;
 
 enum WifiState
 {
+  WIFI_STATE_UNKNOWN,
   WIFI_STATE_HOME,
   WIFI_STATE_AWAY,
 };
 
-WifiState wifiState = WIFI_STATE_AWAY;
+WifiState wifiState = WIFI_STATE_UNKNOWN;
 
 class PowerMultiPlexerClass
 {
@@ -56,8 +57,8 @@ void updateDisplay(const int p2State, const int pmpState, const WifiState wifiSt
   Sprite.clear();
   Sprite.fillScreen(TFT_BLACK);
 
-  Sprite.setFont(&fonts::FreeMono12pt7b);
-  Sprite.setTextSize(2);
+  Sprite.setFont(&fonts::FreeMono9pt7b);
+  Sprite.setTextSize(1);
 
   // Power MultiPlexer
   Sprite.setCursor(6, 6);
@@ -65,11 +66,11 @@ void updateDisplay(const int p2State, const int pmpState, const WifiState wifiSt
   {
   case 1:
     Sprite.setTextColor(TFT_GREEN, TFT_BLACK);
-    Sprite.print("IN: 1:ACC");
+    Sprite.print("IN: ACC");
     break;
   case 2:
     Sprite.setTextColor(TFT_YELLOW, TFT_BLACK);
-    Sprite.print("IN: 2:Bat");
+    Sprite.print("IN: Bat");
     break;
   default:
     Sprite.setTextColor(TFT_RED, TFT_BLACK);
@@ -85,9 +86,21 @@ void updateDisplay(const int p2State, const int pmpState, const WifiState wifiSt
 
   // WiFi
   Sprite.setCursor(6, 54);
-  Sprite.setTextColor(wifiState == WIFI_STATE_HOME ? TFT_GREEN : TFT_ORANGE, TFT_BLACK);
-  Sprite.print("WiFi: ");
-  Sprite.print(wifiState == WIFI_STATE_HOME ? "HOME" : "AWAY");
+  switch (wifiState)
+  {
+  case WIFI_STATE_HOME:
+    Sprite.setTextColor(TFT_GREEN, TFT_BLACK);
+    Sprite.print("WF: HOME");
+    break;
+  case WIFI_STATE_AWAY:
+    Sprite.setTextColor(TFT_YELLOW, TFT_BLACK);
+    Sprite.print("WF: AWAY");
+    break;
+  default:
+    Sprite.setTextColor(TFT_LIGHTGRAY, TFT_BLACK);
+    Sprite.print("WF: ?");
+    break;
+  }
 
   Sprite.pushSprite(0, 0);
 }
@@ -175,7 +188,24 @@ void wifiWatcher(void *pvParameters)
       }
     }
 
+    const auto beforeState = wifiState;
     wifiState = found ? WIFI_STATE_HOME : WIFI_STATE_AWAY;
+    if (beforeState != wifiState)
+    {
+      Serial.printf("WiFi state changed: %d\n", wifiState);
+      if (wifiState == WIFI_STATE_HOME)
+      {
+        // turn off Battery
+        USBRemoteI2C.off();
+        v2LastState = 1;
+      }
+      else
+      {
+        // turn on Battery
+        USBRemoteI2C.on();
+        v2LastState = 0;
+      }
+    }
 
     vTaskDelay(60 * 1000);
   }
@@ -200,9 +230,6 @@ void setup()
   if (v2LastState < 0)
   {
     Serial1.println("Failed to read USB Remote I2C");
-    onError("I2C Error");
-    delay(5000U);
-    ESP.restart();
   }
   Serial.printf("Power state: %d\n", v2LastState);
 
