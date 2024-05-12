@@ -71,10 +71,17 @@ int Y2KB_USBRemoteI2C::read()
 void Y2KB_USBRemoteI2C::updateInitialState(int state)
 {
     _wire.beginTransmission(_address);
+    _wire.write(I2C_REGISTER_INTIAL_STATE);
+    _wire.endTransmission(false);
+    _wire.requestFrom(_address, 1);
+    int before = _wire.read();
+    if (before == state)
+    {
+        return;
+    }
 
     _wire.write(I2C_REGISTER_INTIAL_STATE);
     _wire.write(state);
-
     _wire.endTransmission();
 }
 
