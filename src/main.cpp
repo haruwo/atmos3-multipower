@@ -8,10 +8,9 @@
 
 #define Serial USBSerial
 
-LGFX_Sprite Sprite(&AtomS3.Display);
+#define DISPLAY_BRIGHTNESS 128
 
-int v2LastState = -1;
-int pwrLastState = -1;
+LGFX_Sprite Sprite(&AtomS3.Display);
 
 enum WifiState
 {
@@ -20,7 +19,36 @@ enum WifiState
   WIFI_STATE_AWAY,
 };
 
-WifiState wifiState = WIFI_STATE_UNKNOWN;
+struct StateSet
+{
+  int v2;
+  int pwr;
+  WifiState wifi;
+
+  bool operator==(const StateSet &rhs) const
+  {
+    return v2 == rhs.v2 && pwr == rhs.pwr && wifi == rhs.wifi;
+  }
+
+  bool operator!=(const StateSet &rhs) const
+  {
+    return !(*this == rhs);
+  }
+};
+
+StateSet currentState{
+    -1,
+    -1,
+    WIFI_STATE_UNKNOWN,
+};
+
+StateSet currentDisplayState{
+    -1,
+    -1,
+    WIFI_STATE_UNKNOWN,
+};
+
+time_t lastDisplayUpdate = 0;
 
 class PowerMultiPlexerClass
 {
@@ -54,7 +82,7 @@ private:
 
 PowerMultiPlexerClass PowerMultiPlexer(38);
 
-void updateDisplay(const int p2State, const int pmpState, const WifiState wifiState)
+void updateDisplay(const StateSet &state)
 {
   Sprite.clear();
   Sprite.fillScreen(TFT_BLACK);
@@ -64,7 +92,7 @@ void updateDisplay(const int p2State, const int pmpState, const WifiState wifiSt
 
   // Power MultiPlexer
   Sprite.setCursor(6, 6);
-  switch (pmpState)
+  switch (state.pwr)
   {
   case 1:
     Sprite.setTextColor(TFT_GREEN, TFT_BLACK);
@@ -82,7 +110,7 @@ void updateDisplay(const int p2State, const int pmpState, const WifiState wifiSt
 
   // USB Remote I2C
   Sprite.setCursor(6, 30);
-  switch (p2State)
+  switch (state.v2)
   {
   case 1:
     Sprite.setTextColor(TFT_GREEN, TFT_BLACK);
@@ -100,7 +128,7 @@ void updateDisplay(const int p2State, const int pmpState, const WifiState wifiSt
 
   // WiFi
   Sprite.setCursor(6, 54);
-  switch (wifiState)
+  switch (state.wifi)
   {
   case WIFI_STATE_HOME:
     Sprite.setTextColor(TFT_GREEN, TFT_BLACK);
@@ -136,15 +164,23 @@ void btnWather(void *pvParameters)
     AtomS3.update();
     if (AtomS3.BtnA.wasClicked())
     {
-      if (v2LastState == 1)
+      if (M5.Display.getBrightness() == 0)
       {
+        Serial.println("Display on");
+        M5.Display.powerSaveOff();
+        M5.Display.setBrightness(DISPLAY_BRIGHTNESS);
+      }
+      else if (currentState.v2 == 1)
+      {
+        Serial.println("Turn off Battery");
         USBRemoteI2C.off();
-        v2LastState = 0;
+        currentState.v2 = 0;
       }
       else
       {
+        Serial.println("Turn on Battery");
         USBRemoteI2C.on();
-        v2LastState = 1;
+        currentState.v2 = 1;
       }
     }
     vTaskDelay(100);
@@ -162,9 +198,9 @@ void powerStateWatcher(void *pvParameters)
       vTaskDelay(1000);
       continue;
     }
-    if (pwrLastState != state)
+    if (currentState.pwr != state)
     {
-      pwrLastState = state;
+      currentState.pwr = state;
     }
     vTaskDelay(100);
   }
@@ -181,9 +217,9 @@ void i2cWatcher(void *pvParameters)
       vTaskDelay(1000);
       continue;
     }
-    if (v2LastState != state)
+    if (currentState.v2 != state)
     {
-      v2LastState = state;
+      currentState.v2 = state;
     }
     vTaskDelay(1000);
   }
@@ -221,22 +257,22 @@ void wifiWatcher(void *pvParameters)
       }
     }
 
-    const auto beforeState = wifiState;
-    wifiState = found ? WIFI_STATE_HOME : WIFI_STATE_AWAY;
-    if (beforeState != wifiState)
+    const auto beforeState = currentState.wifi;
+    currentState.wifi = found ? WIFI_STATE_HOME : WIFI_STATE_AWAY;
+    if (beforeState != currentState.wifi)
     {
-      Serial.printf("WiFi state changed: %d\n", wifiState);
-      if (wifiState == WIFI_STATE_HOME)
+      Serial.printf("WiFi state changed: %d\n", currentState.wifi);
+      if (currentState.wifi == WIFI_STATE_HOME)
       {
         // turn off Battery
         USBRemoteI2C.off();
-        v2LastState = 0;
+        currentState.v2 = 0;
       }
       else
       {
         // turn on Battery
         USBRemoteI2C.on();
-        v2LastState = 1;
+        currentState.v2 = 1;
       }
     }
 
@@ -247,6 +283,7 @@ void wifiWatcher(void *pvParameters)
 void setup()
 {
   AtomS3.begin(true);
+  AtomS3.Display.setBrightness(DISPLAY_BRIGHTNESS);
   Serial.begin(115200);
   Wire.begin(2, 1, 1000000UL); // I2C1 (SCL, SDA, frequency
   USBRemoteI2C.begin();
@@ -259,21 +296,50 @@ void setup()
   // set initial state to on
   USBRemoteI2C.on();
   USBRemoteI2C.updateInitialState(1);
-  v2LastState = USBRemoteI2C.read();
-  if (v2LastState < 0)
+  currentState.v2 = USBRemoteI2C.read();
+  if (currentState.v2 < 0)
   {
     Serial1.println("Failed to read USB Remote I2C");
   }
-  Serial.printf("Power state: %d\n", v2LastState);
+  Serial.printf("Power state: %d\n", currentState.v2);
 
   xTaskCreate(btnWather, "btnWather", 4096, NULL, 1, NULL);
   xTaskCreate(powerStateWatcher, "powerStateWatcher", 4096, NULL, 1, NULL);
   xTaskCreate(i2cWatcher, "i2cWatcher", 4096, NULL, 1, NULL);
   xTaskCreate(wifiWatcher, "wifiWatcher", 4096, NULL, 1, NULL);
+
+  updateDisplay(currentState);
+  lastDisplayUpdate = time(nullptr);
 }
 
 void loop()
 {
-  updateDisplay(v2LastState, pwrLastState, wifiState);
+  if (currentDisplayState != currentState)
+  {
+    // update display
+    const auto brightness = AtomS3.Display.getBrightness();
+    if (brightness < DISPLAY_BRIGHTNESS)
+    {
+      Serial.println("Display on");
+      M5.Display.powerSaveOff();
+      M5.Display.setBrightness(DISPLAY_BRIGHTNESS);
+    }
+
+    Serial.println("Display update");
+    updateDisplay(currentState);
+    lastDisplayUpdate = time(nullptr);
+    currentDisplayState = currentState;
+  }
+  else if (time(nullptr) - lastDisplayUpdate > 60)
+  {
+    // turn off display if no update for 60 seconds
+    const auto brightness = AtomS3.Display.getBrightness();
+    if (brightness > 0)
+    {
+      Serial.println("Display off");
+      M5.Display.setBrightness(0);
+      M5.Display.powerSaveOn();
+    }
+  }
   delay(100);
 }
