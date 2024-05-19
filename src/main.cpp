@@ -1,7 +1,6 @@
 #include <M5AtomS3.h>
 #include <Wire.h>
 #include <WiFi.h>
-#include <Y2Kb-USBRemoteI2C.h>
 
 #include "defer.h"
 #include "local_ssid_define.h"
@@ -37,13 +36,13 @@ struct StateSet
 };
 
 StateSet currentState{
-    -1,
+    1,
     -1,
     WIFI_STATE_UNKNOWN,
 };
 
 StateSet currentDisplayState{
-    -1,
+    1,
     -1,
     WIFI_STATE_UNKNOWN,
 };
@@ -81,6 +80,34 @@ private:
 };
 
 PowerMultiPlexerClass PowerMultiPlexer(38);
+
+class V2SwitchClass
+{
+public:
+  V2SwitchClass(int gpio) : _gpio(gpio)
+  {
+  }
+
+  void begin()
+  {
+    pinMode(_gpio, OUTPUT);
+  }
+
+  void on()
+  {
+    digitalWrite(_gpio, HIGH);
+  }
+
+  void off()
+  {
+    digitalWrite(_gpio, LOW);
+  }
+
+private:
+  int _gpio;
+};
+
+V2SwitchClass V2Switch(1);
 
 void updateDisplay(const StateSet &state)
 {
@@ -157,6 +184,18 @@ void onError(const char *msg)
   Sprite.pushSprite(0, 0);
 }
 
+void v2on()
+{
+  V2Switch.on();
+  currentState.v2 = 1;
+}
+
+void v2off()
+{
+  V2Switch.off();
+  currentState.v2 = 0;
+}
+
 void btnWather(void *pvParameters)
 {
   while (1)
@@ -167,20 +206,19 @@ void btnWather(void *pvParameters)
       if (M5.Display.getBrightness() == 0)
       {
         Serial.println("Display on");
+        lastDisplayUpdate = time(nullptr);
         M5.Display.powerSaveOff();
         M5.Display.setBrightness(DISPLAY_BRIGHTNESS);
       }
       else if (currentState.v2 == 1)
       {
         Serial.println("Turn off Battery");
-        USBRemoteI2C.off();
-        currentState.v2 = 0;
+        v2off();
       }
       else
       {
         Serial.println("Turn on Battery");
-        USBRemoteI2C.on();
-        currentState.v2 = 1;
+        v2on();
       }
     }
     vTaskDelay(100);
@@ -203,25 +241,6 @@ void powerStateWatcher(void *pvParameters)
       currentState.pwr = state;
     }
     vTaskDelay(100);
-  }
-}
-
-void i2cWatcher(void *pvParameters)
-{
-  while (1)
-  {
-    int state = USBRemoteI2C.read();
-    if (state < 0)
-    {
-      Serial1.println("Failed to read USB Remote I2C");
-      vTaskDelay(1000);
-      continue;
-    }
-    if (currentState.v2 != state)
-    {
-      currentState.v2 = state;
-    }
-    vTaskDelay(1000);
   }
 }
 
@@ -265,14 +284,12 @@ void wifiWatcher(void *pvParameters)
       if (currentState.wifi == WIFI_STATE_HOME)
       {
         // turn off Battery
-        USBRemoteI2C.off();
-        currentState.v2 = 0;
+        v2off();
       }
       else
       {
         // turn on Battery
-        USBRemoteI2C.on();
-        currentState.v2 = 1;
+        v2on();
       }
     }
 
@@ -285,8 +302,8 @@ void setup()
   AtomS3.begin(true);
   AtomS3.Display.setBrightness(DISPLAY_BRIGHTNESS);
   Serial.begin(115200);
-  Wire.begin(2, 1, 1000000UL); // I2C1 (SCL, SDA, frequency
-  USBRemoteI2C.begin();
+  // I2C 400kbps
+  Wire.begin(2, 1, 400UL * 1000UL);
   PowerMultiPlexer.begin();
 
   delay(1000); // wait for Serial Monitor
@@ -294,18 +311,8 @@ void setup()
   Sprite.createSprite(128, 128);
 
   // set initial state to on
-  USBRemoteI2C.on();
-  USBRemoteI2C.updateInitialState(1);
-  currentState.v2 = USBRemoteI2C.read();
-  if (currentState.v2 < 0)
-  {
-    Serial1.println("Failed to read USB Remote I2C");
-  }
-  Serial.printf("Power state: %d\n", currentState.v2);
-
   xTaskCreate(btnWather, "btnWather", 4096, NULL, 1, NULL);
   xTaskCreate(powerStateWatcher, "powerStateWatcher", 4096, NULL, 1, NULL);
-  xTaskCreate(i2cWatcher, "i2cWatcher", 4096, NULL, 1, NULL);
   xTaskCreate(wifiWatcher, "wifiWatcher", 4096, NULL, 1, NULL);
 
   updateDisplay(currentState);
