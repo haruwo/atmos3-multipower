@@ -36,14 +36,14 @@ struct StateSet
 };
 
 StateSet currentState{
-    1,
-    -1,
+    0,  // v2
+    -1, // pwr
     WIFI_STATE_UNKNOWN,
 };
 
 StateSet currentDisplayState{
-    1,
-    -1,
+    0,  // v2
+    -1, // pwr
     WIFI_STATE_UNKNOWN,
 };
 
@@ -135,17 +135,17 @@ void updateDisplay(const StateSet &state)
     break;
   }
 
-  // USB Remote I2C
+  // V2 Switch
   Sprite.setCursor(6, 30);
   switch (state.v2)
   {
   case 1:
     Sprite.setTextColor(TFT_GREEN, TFT_BLACK);
-    Sprite.print("V2: ON");
+    Sprite.print("SW: Bat");
     break;
   case 0:
     Sprite.setTextColor(TFT_LIGHTGRAY, TFT_BLACK);
-    Sprite.print("V2: OFF");
+    Sprite.print("SW: ACC");
     break;
   default:
     Sprite.setTextColor(TFT_RED, TFT_BLACK);
@@ -225,6 +225,20 @@ void btnWather(void *pvParameters)
   }
 }
 
+void switchV2()
+{
+  if (currentState.pwr == 2 && currentState.wifi == WIFI_STATE_AWAY)
+  {
+    Serial.println("Use buttely");
+    v2on();
+  }
+  else
+  {
+    Serial.println("Shutdown buttely");
+    v2off();
+  }
+}
+
 void powerStateWatcher(void *pvParameters)
 {
   while (1)
@@ -239,6 +253,7 @@ void powerStateWatcher(void *pvParameters)
     if (currentState.pwr != state)
     {
       currentState.pwr = state;
+      switchV2();
     }
     vTaskDelay(100);
   }
@@ -281,16 +296,7 @@ void wifiWatcher(void *pvParameters)
     if (beforeState != currentState.wifi)
     {
       Serial.printf("WiFi state changed: %d\n", currentState.wifi);
-      if (currentState.wifi == WIFI_STATE_HOME)
-      {
-        // turn off Battery
-        v2off();
-      }
-      else
-      {
-        // turn on Battery
-        v2on();
-      }
+      switchV2();
     }
 
     vTaskDelay(60 * 1000);
@@ -302,9 +308,8 @@ void setup()
   AtomS3.begin(true);
   AtomS3.Display.setBrightness(DISPLAY_BRIGHTNESS);
   Serial.begin(115200);
-  // I2C 400kbps
-  Wire.begin(2, 1, 400UL * 1000UL);
   PowerMultiPlexer.begin();
+  V2Switch.begin();
 
   delay(1000); // wait for Serial Monitor
 
