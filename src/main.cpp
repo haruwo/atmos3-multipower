@@ -38,15 +38,24 @@ public:
     return !(*this == rhs);
   }
 
+  StateSet &operator=(const StateSet &rhs)
+  {
+    v2 = rhs.v2;
+    pwr = rhs.pwr;
+    wifi = rhs.wifi;
+    lastUpdate = rhs.lastUpdate;
+    return *this;
+  }
+
   int getV2() const
   {
     return v2;
   }
 
-  void setV2(int v2)
+  void setV2(const int v2)
   {
-    v2 = v2;
-    lastUpdate = time(nullptr);
+    this->v2 = v2;
+    this->lastUpdate = time(nullptr);
   }
 
   PowerState getPwr() const
@@ -54,10 +63,10 @@ public:
     return pwr;
   }
 
-  void setPwr(PowerState pwr)
+  void setPwr(const PowerState pwr)
   {
-    pwr = pwr;
-    lastUpdate = time(nullptr);
+    this->pwr = pwr;
+    this->lastUpdate = time(nullptr);
   }
 
   WifiState getWifi() const
@@ -65,10 +74,10 @@ public:
     return wifi;
   }
 
-  void setWifi(WifiState wifi)
+  void setWifi(const WifiState wifi)
   {
-    wifi = wifi;
-    lastUpdate = time(nullptr);
+    this->wifi = wifi;
+    this->lastUpdate = time(nullptr);
   }
 
   time_t getLastUpdate() const
@@ -76,11 +85,22 @@ public:
     return lastUpdate;
   }
 
+  time_t remainForShutdown() const
+  {
+    if (pwr == POWER_STATE_BAT && wifi == WIFI_STATE_HOME)
+    {
+      return lastUpdate + shutdownTimeSec - time(nullptr);
+    }
+    // max time
+    return 0x7FFFFFFF;
+  }
+
 private:
-  int v2 = 0;
+  int v2 = -1;
   PowerState pwr = POWER_STATE_UNKNOWN;
   WifiState wifi = WIFI_STATE_UNKNOWN;
   time_t lastUpdate = 9;
+  const time_t shutdownTimeSec = 60; // 1 minute
 };
 
 StateSet currentState;
@@ -150,6 +170,8 @@ V2SwitchClass V2Switch(1);
 
 void updateDisplay(const StateSet &state)
 {
+  Serial.printf("Update display: v2:%d pwr:%d wifi:%d\n", state.getV2(), state.getPwr(), state.getWifi());
+
   Sprite.clear();
   Sprite.fillScreen(TFT_BLACK);
 
@@ -210,6 +232,28 @@ void updateDisplay(const StateSet &state)
     break;
   }
 
+  // remaining time for shutdown
+  Sprite.setCursor(6, 78);
+  if (state.remainForShutdown() < 60)
+  {
+    Sprite.setTextColor(TFT_RED, TFT_BLACK);
+    Sprite.print("Shutdown in ");
+    Sprite.print(state.remainForShutdown());
+    Sprite.print(" sec");
+  }
+  else if (state.remainForShutdown() < 60 * 60)
+  {
+    Sprite.setTextColor(TFT_YELLOW, TFT_BLACK);
+    Sprite.print("Shutdown in ");
+    Sprite.print(state.remainForShutdown() / 60);
+    Sprite.print(" min");
+  }
+  else
+  {
+    Sprite.setTextColor(TFT_GREEN, TFT_BLACK);
+    Sprite.print("Running");
+  }
+
   Sprite.pushSprite(0, 0);
 }
 
@@ -225,14 +269,22 @@ void onError(const char *msg)
 
 void v2on()
 {
-  V2Switch.on();
-  currentState.setV2(1);
+  if (currentState.getV2() != 1)
+  {
+    Serial.println("Turn on Battery");
+    V2Switch.on();
+    currentState.setV2(1);
+  }
 }
 
 void v2off()
 {
-  V2Switch.off();
-  currentState.setV2(0);
+  if (currentState.getV2() != 0)
+  {
+    Serial.println("Turn off Battery");
+    V2Switch.off();
+    currentState.setV2(0);
+  }
 }
 
 void btnWather(void *pvParameters)
@@ -251,12 +303,10 @@ void btnWather(void *pvParameters)
       }
       else if (currentState.getV2() == 1)
       {
-        Serial.println("Turn off Battery");
         v2off();
       }
       else
       {
-        Serial.println("Turn on Battery");
         v2on();
       }
     }
@@ -268,14 +318,13 @@ void switchV2()
 {
   if (currentState.getPwr() == POWER_STATE_BAT && currentState.getWifi() == WIFI_STATE_AWAY)
   {
-    Serial.println("Use buttely");
     v2on();
   }
   else
   {
-    Serial.println("Shutdown buttely");
     v2off();
   }
+  vTaskDelay(100);
 }
 
 void powerStateWatcher(void *pvParameters)
@@ -348,7 +397,7 @@ void shutdownTimer(void *pvParameters)
   const time_t shutdownTimeSec = 60 * 5; // 5 minutes
   while (1)
   {
-    if (currentState.getPwr() == POWER_STATE_BAT && currentState.getWifi() == WIFI_STATE_HOME && currentState.getLastUpdate() + shutdownTimeSec > time(nullptr))
+    if (currentState.remainForShutdown() <= 0)
     {
       Serial.println("Shutdown");
       M5.Power.deepSleep();
@@ -381,7 +430,7 @@ void setup()
 
 void loop()
 {
-  if (currentDisplayState != currentState)
+  if (currentDisplayState != currentState || currentState.remainForShutdown() < 60)
   {
     // update display
     const auto brightness = AtomS3.Display.getBrightness();
