@@ -18,12 +18,16 @@ enum WifiState
   WIFI_STATE_AWAY,
 };
 
-struct StateSet
+enum PowerState
 {
-  int v2;
-  int pwr;
-  WifiState wifi;
+  POWER_STATE_UNKNOWN,
+  POWER_STATE_ACC,
+  POWER_STATE_BAT,
+};
 
+class StateSet
+{
+public:
   bool operator==(const StateSet &rhs) const
   {
     return v2 == rhs.v2 && pwr == rhs.pwr && wifi == rhs.wifi;
@@ -33,19 +37,54 @@ struct StateSet
   {
     return !(*this == rhs);
   }
+
+  int getV2() const
+  {
+    return v2;
+  }
+
+  void setV2(int v2)
+  {
+    v2 = v2;
+    lastUpdate = time(nullptr);
+  }
+
+  PowerState getPwr() const
+  {
+    return pwr;
+  }
+
+  void setPwr(PowerState pwr)
+  {
+    pwr = pwr;
+    lastUpdate = time(nullptr);
+  }
+
+  WifiState getWifi() const
+  {
+    return wifi;
+  }
+
+  void setWifi(WifiState wifi)
+  {
+    wifi = wifi;
+    lastUpdate = time(nullptr);
+  }
+
+  time_t getLastUpdate() const
+  {
+    return lastUpdate;
+  }
+
+private:
+  int v2 = 0;
+  PowerState pwr = POWER_STATE_UNKNOWN;
+  WifiState wifi = WIFI_STATE_UNKNOWN;
+  time_t lastUpdate = 9;
 };
 
-StateSet currentState{
-    0,  // v2
-    -1, // pwr
-    WIFI_STATE_UNKNOWN,
-};
-
-StateSet currentDisplayState{
-    0,  // v2
-    -1, // pwr
-    WIFI_STATE_UNKNOWN,
-};
+StateSet currentState;
+StateSet currentDisplayState;
 
 time_t lastDisplayUpdate = 0;
 
@@ -119,13 +158,13 @@ void updateDisplay(const StateSet &state)
 
   // Power MultiPlexer
   Sprite.setCursor(6, 6);
-  switch (state.pwr)
+  switch (state.getPwr())
   {
-  case 1:
+  case POWER_STATE_ACC:
     Sprite.setTextColor(TFT_GREEN, TFT_BLACK);
     Sprite.print("IN: ACC");
     break;
-  case 2:
+  case POWER_STATE_BAT:
     Sprite.setTextColor(TFT_YELLOW, TFT_BLACK);
     Sprite.print("IN: Bat");
     break;
@@ -137,7 +176,7 @@ void updateDisplay(const StateSet &state)
 
   // V2 Switch
   Sprite.setCursor(6, 30);
-  switch (state.v2)
+  switch (state.getV2())
   {
   case 1:
     Sprite.setTextColor(TFT_GREEN, TFT_BLACK);
@@ -155,7 +194,7 @@ void updateDisplay(const StateSet &state)
 
   // WiFi
   Sprite.setCursor(6, 54);
-  switch (state.wifi)
+  switch (state.getWifi())
   {
   case WIFI_STATE_HOME:
     Sprite.setTextColor(TFT_GREEN, TFT_BLACK);
@@ -187,13 +226,13 @@ void onError(const char *msg)
 void v2on()
 {
   V2Switch.on();
-  currentState.v2 = 1;
+  currentState.setV2(1);
 }
 
 void v2off()
 {
   V2Switch.off();
-  currentState.v2 = 0;
+  currentState.setV2(0);
 }
 
 void btnWather(void *pvParameters)
@@ -210,7 +249,7 @@ void btnWather(void *pvParameters)
         M5.Display.powerSaveOff();
         M5.Display.setBrightness(DISPLAY_BRIGHTNESS);
       }
-      else if (currentState.v2 == 1)
+      else if (currentState.getV2() == 1)
       {
         Serial.println("Turn off Battery");
         v2off();
@@ -227,7 +266,7 @@ void btnWather(void *pvParameters)
 
 void switchV2()
 {
-  if (currentState.pwr == 2 && currentState.wifi == WIFI_STATE_AWAY)
+  if (currentState.getPwr() == POWER_STATE_BAT && currentState.getWifi() == WIFI_STATE_AWAY)
   {
     Serial.println("Use buttely");
     v2on();
@@ -250,9 +289,10 @@ void powerStateWatcher(void *pvParameters)
       vTaskDelay(1000);
       continue;
     }
-    if (currentState.pwr != state)
+    const PowerState pwr = state == 1 ? POWER_STATE_ACC : POWER_STATE_BAT;
+    if (currentState.getPwr() != pwr)
     {
-      currentState.pwr = state;
+      currentState.setPwr(pwr);
       switchV2();
     }
     vTaskDelay(100);
@@ -291,15 +331,29 @@ void wifiWatcher(void *pvParameters)
       }
     }
 
-    const auto beforeState = currentState.wifi;
-    currentState.wifi = found ? WIFI_STATE_HOME : WIFI_STATE_AWAY;
-    if (beforeState != currentState.wifi)
+    const WifiState newState = found ? WIFI_STATE_HOME : WIFI_STATE_AWAY;
+    if (currentState.getWifi() != newState)
     {
-      Serial.printf("WiFi state changed: %d\n", currentState.wifi);
+      Serial.printf("WiFi state changed: %d\n", newState);
+      currentState.setWifi(newState);
       switchV2();
     }
 
     vTaskDelay(60 * 1000);
+  }
+}
+
+void shutdownTimer(void *pvParameters)
+{
+  const time_t shutdownTimeSec = 60 * 5; // 5 minutes
+  while (1)
+  {
+    if (currentState.getPwr() == POWER_STATE_BAT && currentState.getWifi() == WIFI_STATE_HOME && currentState.getLastUpdate() + shutdownTimeSec > time(nullptr))
+    {
+      Serial.println("Shutdown");
+      M5.Power.deepSleep();
+    }
+    vTaskDelay(1000);
   }
 }
 
@@ -319,6 +373,7 @@ void setup()
   xTaskCreate(btnWather, "btnWather", 4096, NULL, 1, NULL);
   xTaskCreate(powerStateWatcher, "powerStateWatcher", 4096, NULL, 1, NULL);
   xTaskCreate(wifiWatcher, "wifiWatcher", 4096, NULL, 1, NULL);
+  xTaskCreate(shutdownTimer, "shutdownTimer", 4096, NULL, 1, NULL);
 
   updateDisplay(currentState);
   lastDisplayUpdate = time(nullptr);
