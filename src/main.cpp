@@ -398,7 +398,6 @@ void wifiWatcher(void *pvParameters)
 
 void shutdownTimer(void *pvParameters)
 {
-  const time_t shutdownTimeSec = 60 * 5; // 5 minutes
   while (1)
   {
     if (currentState.remainForShutdown() <= 0)
