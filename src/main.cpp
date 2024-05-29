@@ -269,22 +269,26 @@ void onError(const char *msg)
 
 void v2on()
 {
-  if (currentState.getV2() != 1)
+  if (currentState.getV2() == 1)
   {
-    Serial.println("Turn on Battery");
-    V2Switch.on();
-    currentState.setV2(1);
+    return;
   }
+
+  Serial.println("Turn on Battery");
+  V2Switch.on();
+  currentState.setV2(1);
 }
 
 void v2off()
 {
-  if (currentState.getV2() != 0)
+  if (currentState.getV2() == 0)
   {
-    Serial.println("Turn off Battery");
-    V2Switch.off();
-    currentState.setV2(0);
+    return;
   }
+
+  Serial.println("Turn off Battery");
+  V2Switch.off();
+  currentState.setV2(0);
 }
 
 void btnWather(void *pvParameters)
