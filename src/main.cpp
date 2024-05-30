@@ -89,7 +89,11 @@ public:
   {
     if (pwr == POWER_STATE_BAT && wifi == WIFI_STATE_HOME)
     {
-      return lastUpdate + shutdownTimeSec - time(nullptr);
+      return lastUpdate + shutdownTimeSecAtHome - time(nullptr);
+    }
+    else if (pwr == POWER_STATE_BAT && wifi == WIFI_STATE_AWAY)
+    {
+      return lastUpdate + shutdownTimeSecAtAway - time(nullptr);
     }
     // max time
     return 0x7FFFFFFF;
@@ -100,7 +104,8 @@ private:
   PowerState pwr = POWER_STATE_UNKNOWN;
   WifiState wifi = WIFI_STATE_UNKNOWN;
   time_t lastUpdate = 9;
-  const time_t shutdownTimeSec = 60; // 1 minute
+  const time_t shutdownTimeSecAtHome = 5;
+  const time_t shutdownTimeSecAtAway = 60 * 60 * 8; // 8 hours
 };
 
 StateSet currentState;
@@ -135,10 +140,38 @@ public:
   }
 
 private:
-  int _gpio;
+  const int _gpio;
 };
 
-PowerMultiPlexerClass PowerMultiPlexer(38);
+static PowerMultiPlexerClass PowerMultiPlexer(38);
+
+class V1StateClass
+{
+public:
+  V1StateClass(int gpio) : _gpio(gpio)
+  {
+  }
+
+  void begin()
+  {
+    pinMode(_gpio, INPUT);
+  }
+
+  bool high()
+  {
+    return digitalRead(_gpio) == HIGH;
+  }
+
+  bool low()
+  {
+    return !high();
+  }
+
+private:
+  const int _gpio;
+};
+
+static V1StateClass V1State(39);
 
 class V2SwitchClass
 {
@@ -335,14 +368,8 @@ void powerStateWatcher(void *pvParameters)
 {
   while (1)
   {
-    int state = PowerMultiPlexer.input();
-    if (state <= 0)
-    {
-      Serial1.println("Failed to read GPIO");
-      vTaskDelay(1000);
-      continue;
-    }
-    const PowerState pwr = state == 1 ? POWER_STATE_ACC : POWER_STATE_BAT;
+    AtomS3.update();
+    const PowerState pwr = V1State.high() ? POWER_STATE_ACC : POWER_STATE_BAT;
     if (currentState.getPwr() != pwr)
     {
       currentState.setPwr(pwr);
@@ -409,6 +436,46 @@ void shutdownTimer(void *pvParameters)
   }
 }
 
+void updateDisplayTask(void *pvParameters)
+{
+  while (1)
+  {
+    if (currentDisplayState != currentState || currentState.remainForShutdown() < 60)
+    {
+      // update display
+      const auto brightness = AtomS3.Display.getBrightness();
+      if (brightness < DISPLAY_BRIGHTNESS)
+      {
+        Serial.println("Display on");
+        M5.Display.powerSaveOff();
+        M5.Display.setBrightness(DISPLAY_BRIGHTNESS);
+      }
+
+      Serial.println("Display update");
+      updateDisplay(currentState);
+      lastDisplayUpdate = time(nullptr);
+      currentDisplayState = currentState;
+    }
+    else if (time(nullptr) - lastDisplayUpdate > 60)
+    {
+      // turn off display if no update for 60 seconds
+      const auto brightness = AtomS3.Display.getBrightness();
+      if (brightness > 0)
+      {
+        Serial.println("Display off");
+        M5.Display.setBrightness(0);
+        M5.Display.powerSaveOn();
+      }
+    }
+    delay(100);
+  }
+}
+
+void loop()
+{
+  delay(60 * 1000);
+}
+
 void setup()
 {
   AtomS3.begin(true);
@@ -416,6 +483,7 @@ void setup()
   Serial.begin(115200);
   PowerMultiPlexer.begin();
   V2Switch.begin();
+  V1State.begin();
 
   delay(1000); // wait for Serial Monitor
 
@@ -426,39 +494,8 @@ void setup()
   xTaskCreate(powerStateWatcher, "powerStateWatcher", 4096, NULL, 1, NULL);
   xTaskCreate(wifiWatcher, "wifiWatcher", 4096, NULL, 1, NULL);
   xTaskCreate(shutdownTimer, "shutdownTimer", 4096, NULL, 1, NULL);
+  xTaskCreate(updateDisplayTask, "updateDisplayTask", 4096, NULL, 1, NULL);
 
   updateDisplay(currentState);
   lastDisplayUpdate = time(nullptr);
-}
-
-void loop()
-{
-  if (currentDisplayState != currentState || currentState.remainForShutdown() < 60)
-  {
-    // update display
-    const auto brightness = AtomS3.Display.getBrightness();
-    if (brightness < DISPLAY_BRIGHTNESS)
-    {
-      Serial.println("Display on");
-      M5.Display.powerSaveOff();
-      M5.Display.setBrightness(DISPLAY_BRIGHTNESS);
-    }
-
-    Serial.println("Display update");
-    updateDisplay(currentState);
-    lastDisplayUpdate = time(nullptr);
-    currentDisplayState = currentState;
-  }
-  else if (time(nullptr) - lastDisplayUpdate > 60)
-  {
-    // turn off display if no update for 60 seconds
-    const auto brightness = AtomS3.Display.getBrightness();
-    if (brightness > 0)
-    {
-      Serial.println("Display off");
-      M5.Display.setBrightness(0);
-      M5.Display.powerSaveOn();
-    }
-  }
-  delay(100);
 }
