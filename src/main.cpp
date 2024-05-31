@@ -116,7 +116,7 @@ time_t lastDisplayUpdate = 0;
 class PowerMultiPlexerClass
 {
 public:
-  PowerMultiPlexerClass(int gpio) : _gpio(gpio)
+  PowerMultiPlexerClass(const gpio_num_t gpio) : _gpio(gpio)
   {
   }
 
@@ -139,16 +139,21 @@ public:
     }
   }
 
+  gpio_num_t gpio() const
+  {
+    return _gpio;
+  }
+
 private:
-  const int _gpio;
+  const gpio_num_t _gpio;
 };
 
-static PowerMultiPlexerClass PowerMultiPlexer(38);
+static PowerMultiPlexerClass PowerMultiPlexer(GPIO_NUM_38);
 
 class V1StateClass
 {
 public:
-  V1StateClass(int gpio) : _gpio(gpio)
+  V1StateClass(const gpio_num_t gpio) : _gpio(gpio)
   {
   }
 
@@ -167,16 +172,21 @@ public:
     return !high();
   }
 
+  gpio_num_t gpio() const
+  {
+    return _gpio;
+  }
+
 private:
-  const int _gpio;
+  const gpio_num_t _gpio;
 };
 
-static V1StateClass V1State(39);
+static V1StateClass V1State(GPIO_NUM_39);
 
 class V2SwitchClass
 {
 public:
-  V2SwitchClass(int gpio) : _gpio(gpio)
+  V2SwitchClass(const gpio_num_t gpio) : _gpio(gpio)
   {
   }
 
@@ -195,11 +205,16 @@ public:
     digitalWrite(_gpio, LOW);
   }
 
+  gpio_num_t gpio() const
+  {
+    return _gpio;
+  }
+
 private:
-  int _gpio;
+  const gpio_num_t _gpio;
 };
 
-V2SwitchClass V2Switch(1);
+V2SwitchClass V2Switch(GPIO_NUM_1);
 
 void updateDisplay(const StateSet &state)
 {
@@ -471,11 +486,6 @@ void updateDisplayTask(void *pvParameters)
   }
 }
 
-void loop()
-{
-  delay(60 * 1000);
-}
-
 void setup()
 {
   AtomS3.begin(true);
@@ -485,7 +495,14 @@ void setup()
   V2Switch.begin();
   V1State.begin();
 
+  AtomS3.Display.setCursor(8, 8);
+  AtomS3.Display.setTextSize(2);
+  AtomS3.Display.println("Hello !!");
+
   delay(1000); // wait for Serial Monitor
+
+  // Wake on v1 is up
+  esp_sleep_enable_ext0_wakeup(V1State.gpio(), 1);
 
   Sprite.createSprite(128, 128);
 
@@ -498,4 +515,9 @@ void setup()
 
   updateDisplay(currentState);
   lastDisplayUpdate = time(nullptr);
+}
+
+void loop()
+{
+  delay(60 * 1000);
 }
